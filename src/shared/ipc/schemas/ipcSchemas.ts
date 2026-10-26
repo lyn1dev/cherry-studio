@@ -28,6 +28,7 @@ import { type NavigationEventSchemas, navigationRequestSchemas } from './navigat
 import { type NotificationEventSchemas, notificationRequestSchemas } from './notification'
 import { oauthRequestSchemas } from './oauth'
 import { openclawRequestSchemas } from './openclaw'
+import { openrouterRequestSchemas } from './openrouter'
 import { ovmsRequestSchemas } from './ovms'
 import { pdfjsRequestSchemas } from './pdfjs'
 import { printRequestSchemas } from './print'
@@ -86,6 +87,7 @@ export const ipcRequestSchemas = {
   ...notificationRequestSchemas,
   ...oauthRequestSchemas,
   ...openclawRequestSchemas,
+  ...openrouterRequestSchemas,
   ...ovmsRequestSchemas,
   ...pdfjsRequestSchemas,
   ...printRequestSchemas,

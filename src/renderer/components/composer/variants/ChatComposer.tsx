@@ -83,6 +83,7 @@ import { QueuedFollowupsDock } from '../QueuedFollowupsDock'
 import type { ComposerDraftToken, ComposerSerializedDraft, ComposerSerializedToken } from '../tokens'
 import { type FollowupQueueItem, useFollowupQueue } from '../useFollowupQueue'
 import { useInputHistory } from '../useInputHistory'
+import { ChatComposerOpenRouterUsage } from './chat/ChatComposerOpenRouterUsage'
 import { ChatConversationControls, type ChatConversationControlsProps } from './chat/ChatConversationControls'
 import { type ChatComposerDraftCache, readChatDraftCache, writeChatDraftCache } from './chat/chatDraftCache'
 import {
@@ -1956,6 +1957,7 @@ const ChatComposerInner = ({
         />
       ) : null}
       <ChatComposerContextUsage usage={contextUsage} />
+      <ChatComposerOpenRouterUsage model={runtimeModel} isLoading={loading} />
       <ComposerDictationButton inputAdapter={inputAdapter} />
     </>
   )
