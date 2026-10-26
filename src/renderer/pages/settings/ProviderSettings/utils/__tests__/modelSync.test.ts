@@ -1,9 +1,14 @@
 import { mockRendererLoggerService } from '@test-mocks/RendererLoggerService'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ENDPOINT_TYPE, MODEL_CAPABILITY } from '@shared/data/types/model'
+import { ENDPOINT_TYPE, MODALITY, type Model, MODEL_CAPABILITY } from '@shared/data/types/model'
 
-import { fetchResolvedProviderModels, resolveCreateModelEndpointTypes, toCreateModelDto } from '../modelSync'
+import {
+  buildMissingListingMetadataPatch,
+  fetchResolvedProviderModels,
+  resolveCreateModelEndpointTypes,
+  toCreateModelDto
+} from '../modelSync'
 
 const { dataApiGetMock } = vi.hoisted(() => ({ dataApiGetMock: vi.fn() }))
 
@@ -334,5 +339,97 @@ describe('toCreateModelDto', () => {
     })
 
     expect(dto.capabilities).toBeUndefined()
+  })
+
+  it('stores listed modalities, output limit, pricing and description for a model the catalog does not know', () => {
+    const dto = toCreateModelDto('openrouter', listedOpenRouterModel())
+
+    expect(dto).toMatchObject({
+      description: 'A vision model',
+      capabilities: [MODEL_CAPABILITY.FUNCTION_CALL, MODEL_CAPABILITY.IMAGE_RECOGNITION],
+      inputModalities: [MODALITY.TEXT, MODALITY.IMAGE],
+      outputModalities: [MODALITY.TEXT],
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+      pricing: { input: { perMillionTokens: 0 }, output: { perMillionTokens: 0 } }
+    })
+  })
+
+  it('leaves listed metadata to the preset for a catalog model', () => {
+    const dto = toCreateModelDto('openrouter', { ...listedOpenRouterModel(), presetModelId: 'acme-vl' })
+
+    expect(dto).not.toHaveProperty('description')
+    expect(dto).not.toHaveProperty('inputModalities')
+    expect(dto).not.toHaveProperty('outputModalities')
+    expect(dto).not.toHaveProperty('maxOutputTokens')
+    expect(dto).not.toHaveProperty('pricing')
+  })
+})
+
+function listedOpenRouterModel(overrides: Partial<Model> = {}): Model {
+  return {
+    id: 'openrouter::acme/vl:free',
+    providerId: 'openrouter',
+    apiModelId: 'acme/vl:free',
+    name: 'Acme VL (free)',
+    description: 'A vision model',
+    capabilities: [MODEL_CAPABILITY.FUNCTION_CALL, MODEL_CAPABILITY.IMAGE_RECOGNITION],
+    inputModalities: [MODALITY.TEXT, MODALITY.IMAGE],
+    outputModalities: [MODALITY.TEXT],
+    contextWindow: 1_000_000,
+    maxOutputTokens: 131_072,
+    pricing: { input: { perMillionTokens: 0 }, output: { perMillionTokens: 0 } },
+    supportsStreaming: true,
+    isEnabled: true,
+    isHidden: false,
+    ...overrides
+  }
+}
+
+describe('buildMissingListingMetadataPatch', () => {
+  const savedWithNothing = listedOpenRouterModel({
+    description: undefined,
+    capabilities: [],
+    inputModalities: undefined,
+    outputModalities: undefined,
+    contextWindow: undefined,
+    maxOutputTokens: undefined,
+    pricing: undefined
+  })
+
+  it('fills every empty field of a saved custom model from the listing', () => {
+    expect(buildMissingListingMetadataPatch(savedWithNothing, listedOpenRouterModel())).toEqual({
+      description: 'A vision model',
+      capabilities: [MODEL_CAPABILITY.FUNCTION_CALL, MODEL_CAPABILITY.IMAGE_RECOGNITION],
+      inputModalities: [MODALITY.TEXT, MODALITY.IMAGE],
+      outputModalities: [MODALITY.TEXT],
+      contextWindow: 1_000_000,
+      maxOutputTokens: 131_072,
+      pricing: { input: { perMillionTokens: 0 }, output: { perMillionTokens: 0 } }
+    })
+  })
+
+  it('never replaces fields the user already set', () => {
+    const userEdited = {
+      ...savedWithNothing,
+      capabilities: [MODEL_CAPABILITY.REASONING],
+      inputModalities: [MODALITY.TEXT, MODALITY.VIDEO]
+    }
+
+    const patch = buildMissingListingMetadataPatch(userEdited, listedOpenRouterModel())
+
+    expect(patch).not.toHaveProperty('capabilities')
+    expect(patch).not.toHaveProperty('inputModalities')
+    expect(patch).toMatchObject({ contextWindow: 1_000_000 })
+  })
+
+  it('leaves catalog-backed models to the catalog', () => {
+    expect(
+      buildMissingListingMetadataPatch({ ...savedWithNothing, presetModelId: 'acme-vl' }, listedOpenRouterModel())
+    ).toBeNull()
+  })
+
+  it('returns null when nothing is missing', () => {
+    expect(buildMissingListingMetadataPatch(listedOpenRouterModel(), listedOpenRouterModel())).toBeNull()
   })
 })

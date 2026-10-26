@@ -90,7 +90,9 @@ const ProviderModelPullReconcile: React.FC<ProviderModelPullReconcileProps> = ({
         onRetryLoadModels={async () => {
           await pullReconcile.reloadModels()
         }}
-        onAddModels={pullReconcile.addModels}
+        onAddModels={async (models) => {
+          await pullReconcile.addModels(models)
+        }}
         onRemoveModels={pullReconcile.removeModels}
         onCleanStaleModels={pullReconcile.cleanStaleModels}
         onClose={pullReconcile.closePullReconcile}

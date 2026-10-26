@@ -7,6 +7,7 @@ import { loggerService } from '@logger'
 import { useModelMutations, useModels } from '@renderer/hooks/useModel'
 import { useProvider } from '@renderer/hooks/useProvider'
 import {
+  buildMissingListingMetadataPatch,
   fetchResolvedProviderModels,
   resolveCreateModelEndpointTypes,
   toCreateModelDto
@@ -15,7 +16,11 @@ import { enableProviderWhenModelsAvailable } from '@renderer/pages/settings/Prov
 import { toast } from '@renderer/services/toast'
 import { serializeHealthCheckError } from '@renderer/utils/error'
 import { classifyError } from '@renderer/utils/errorClassifier'
-import { MODELS_BATCH_MAX_ITEMS } from '@shared/data/api/schemas/models'
+import {
+  type BulkUpdateModelsDto,
+  MODELS_BATCH_MAX_ITEMS,
+  MODELS_BULK_UPDATE_MAX_ITEMS
+} from '@shared/data/api/schemas/models'
 import type { Model, UniqueModelId } from '@shared/data/types/model'
 
 import { chunkArray } from '../utils/chunkArray'
@@ -82,7 +87,7 @@ export function useProviderModelPullReconcile(providerId: string) {
   const [translateModelId] = usePreference('feature.translate.model_id')
   const { provider, enableProvider } = useProvider(providerId)
   const { models } = useModels({ providerId })
-  const { createModels, deleteModels, isCreating, isDeleting, isBulkDeleting } = useModelMutations()
+  const { createModels, deleteModels, updateModels, isCreating, isDeleting, isBulkDeleting } = useModelMutations()
   const { trigger: reconcileModels, isLoading: isReconciling } = useMutation(
     'POST',
     '/providers/:providerId/models:reconcile',
@@ -116,6 +121,31 @@ export function useProviderModelPullReconcile(providerId: string) {
   const defaultModelIdList = useMemo(() => [...defaultModelIds], [defaultModelIds])
   const staleModelIds = useMemo(() => staleModels.map((model) => model.id), [staleModels])
 
+  // Saved models added before the listing carried this metadata (or edited down to nothing) pick it
+  // up on the next load; fields the user already filled are left alone.
+  const fillMissingListingMetadata = useCallback(
+    async (listed: Model[]) => {
+      const listedById = new Map(listed.map((model) => [model.id, model]))
+      const items: BulkUpdateModelsDto = models.flatMap((saved) => {
+        const match = listedById.get(saved.id)
+        const patch = match ? buildMissingListingMetadataPatch(saved, match) : null
+        return patch ? [{ uniqueModelId: saved.id, patch }] : []
+      })
+      for (const chunk of chunkArray(items, MODELS_BULK_UPDATE_MAX_ITEMS)) {
+        try {
+          await updateModels(chunk)
+        } catch (error) {
+          logger.warn('Failed to fill missing model metadata from the provider listing', {
+            providerId,
+            count: chunk.length,
+            error
+          })
+        }
+      }
+    },
+    [models, providerId, updateModels]
+  )
+
   const loadModels = useCallback(async (): Promise<ProviderModelLoadResult | null> => {
     const sequence = ++loadModelsSequenceRef.current
     const isLatestLoad = () => sequence === loadModelsSequenceRef.current
@@ -135,6 +165,7 @@ export function useProviderModelPullReconcile(providerId: string) {
       }
       setFetchedModels(fetched)
       setHasLoadedCompleteRemoteModels(true)
+      void fillMissingListingMetadata(fetched)
       return { models: uniqueById(fetched), error: null }
     } catch (error) {
       if (!isLatestLoad()) return null
@@ -152,7 +183,7 @@ export function useProviderModelPullReconcile(providerId: string) {
     } finally {
       if (isLatestLoad()) setIsLoadingModels(false)
     }
-  }, [providerId, t])
+  }, [fillMissingListingMetadata, providerId, t])
 
   const openPullReconcile = useCallback(() => {
     setPullReconcileDrawerOpen(true)
@@ -163,12 +194,13 @@ export function useProviderModelPullReconcile(providerId: string) {
     setPullReconcileDrawerOpen(false)
   }, [])
 
+  /** Adds the models not saved yet, reporting failures itself; resolves to how many were added. */
   const addModels = useCallback(
-    async (nextModels: Model[]) => {
+    async (nextModels: Model[]): Promise<number> => {
       const currentIds = new Set(models.map((model) => model.id))
       const toAdd = uniqueById(nextModels).filter((model) => !currentIds.has(model.id))
       if (toAdd.length === 0) {
-        return
+        return 0
       }
 
       const chunks = chunkArray(
@@ -198,13 +230,13 @@ export function useProviderModelPullReconcile(providerId: string) {
 
       if (addedCount === 0) {
         toast.error(t('settings.models.manage.operation_failed'))
-        return
+        return 0
       }
       if (failedCount > 0) {
         // The provider is turned on for the model set the user asked for, not for
         // part of it: a half-added library stays off until a retry completes it.
         toast.warning(t('settings.models.manage.add_partial_failure', { added: addedCount, failed: failedCount }))
-        return
+        return addedCount
       }
 
       try {
@@ -222,6 +254,7 @@ export function useProviderModelPullReconcile(providerId: string) {
         })
         toast.warning(t('settings.models.manage.add_success_enable_failed'))
       }
+      return addedCount
     },
     [createModels, enableProvider, models, provider, providerId, t]
   )

@@ -3,7 +3,7 @@ import { isEmpty } from 'es-toolkit/compat'
 import { dataApiService } from '@data/DataApiService'
 import { loggerService } from '@logger'
 import { ipcApi } from '@renderer/ipc'
-import type { CreateModelDto } from '@shared/data/api/schemas/models'
+import type { CreateModelDto, UpdateModelDto } from '@shared/data/api/schemas/models'
 import type { ConcreteApiPaths } from '@shared/data/api/types'
 import {
   type EndpointType as RuntimeEndpointType,
@@ -58,19 +58,61 @@ export function toCreateModelDto(
 ): CreateModelDto {
   const modelId = getRawModelId(model)
   const resolvedEndpointTypes = endpointTypes?.length ? endpointTypes : model.endpointTypes
-  const capabilities = !model.presetModelId && model.capabilities?.length ? model.capabilities : undefined
+  // Catalog models take this metadata from their preset; only listing-only models need it stored.
+  const listed = listingOnlyMetadata(model)
 
   return {
     providerId,
     modelId,
     name: model.name,
     group: model.group,
-    ...(capabilities ? { capabilities: [...capabilities] } : {}),
+    ...listed,
     ...(resolvedEndpointTypes?.length ? { endpointTypes: [...resolvedEndpointTypes] } : {}),
     // Discovered rather than registry-supplied for local providers — Ollama's window comes from
     // `/api/show`, and dropping it here leaves the row without one, so no `num_ctx` is ever sent.
     ...(model.contextWindow ? { contextWindow: model.contextWindow } : {})
   }
+}
+
+type ListingMetadata = Pick<
+  CreateModelDto,
+  'description' | 'capabilities' | 'inputModalities' | 'outputModalities' | 'maxOutputTokens' | 'pricing'
+>
+
+/** The provider-listed metadata a model without a catalog preset keeps, or nothing for a catalog model. */
+function listingOnlyMetadata(model: Model): ListingMetadata {
+  if (model.presetModelId) return {}
+  return {
+    ...(model.description ? { description: model.description } : {}),
+    ...(model.capabilities?.length ? { capabilities: [...model.capabilities] } : {}),
+    ...(model.inputModalities?.length ? { inputModalities: [...model.inputModalities] } : {}),
+    ...(model.outputModalities?.length ? { outputModalities: [...model.outputModalities] } : {}),
+    ...(model.maxOutputTokens ? { maxOutputTokens: model.maxOutputTokens } : {}),
+    ...(model.pricing ? { pricing: model.pricing } : {})
+  }
+}
+
+/**
+ * Fields a provider listing can fill on an already-saved model that has no catalog preset,
+ * limited to fields that are still empty so values the user set are never replaced.
+ *
+ * @returns null when the saved model is catalog-backed or nothing is missing.
+ */
+export function buildMissingListingMetadataPatch(saved: Model, listed: Model): UpdateModelDto | null {
+  if (saved.presetModelId) return null
+  const available: ListingMetadata & Pick<CreateModelDto, 'contextWindow'> = {
+    ...listingOnlyMetadata(listed),
+    ...(listed.contextWindow ? { contextWindow: listed.contextWindow } : {})
+  }
+  const patch: UpdateModelDto = {}
+  if (available.description && !saved.description) patch.description = available.description
+  if (available.capabilities && saved.capabilities.length === 0) patch.capabilities = available.capabilities
+  if (available.inputModalities && !saved.inputModalities?.length) patch.inputModalities = available.inputModalities
+  if (available.outputModalities && !saved.outputModalities?.length) patch.outputModalities = available.outputModalities
+  if (available.contextWindow && !saved.contextWindow) patch.contextWindow = available.contextWindow
+  if (available.maxOutputTokens && !saved.maxOutputTokens) patch.maxOutputTokens = available.maxOutputTokens
+  if (available.pricing && !saved.pricing) patch.pricing = available.pricing
+  return Object.keys(patch).length > 0 ? patch : null
 }
 
 /**

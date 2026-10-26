@@ -55,6 +55,7 @@ import {
 import { COPILOT_DEFAULT_HEADERS } from './constants'
 import { listWorkflows } from './custom/comfyui/comfyuiWorkflowDiscovery'
 import { partitionListableWorkflows } from './custom/comfyui/comfyuiWorkflows'
+import { parseOpenRouterModelMetadata } from './listModels/openrouter'
 import {
   createVertexModelListRequest,
   DEFAULT_VERTEX_MODEL_PUBLISHERS,
@@ -733,6 +734,7 @@ const openRouterFetcher: ModelFetcher = {
       dedup(all, (m) => m.id).map((m) => {
         const imageModel = imageModelsById.get(m.id)
         return toModel(m.id, provider, {
+          ...parseOpenRouterModelMetadata(m),
           name: imageModel?.name ?? m.name,
           ownedBy: m.owned_by,
           ...(imageModel

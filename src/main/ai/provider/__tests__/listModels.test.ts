@@ -1033,6 +1033,41 @@ describe('listModels — openRouterFetcher image models', () => {
     })
   })
 
+  it('carries OpenRouter tool support and limits into chat and embedding models', async () => {
+    const provider = makeOpenRouterProvider()
+    aiSdkGetFromApiMock.mockImplementation(({ url }: { url: string }) => {
+      if (url.endsWith('/embeddings/models')) {
+        return Promise.resolve({
+          value: { data: [{ id: 'acme/embed:free', architecture: { output_modalities: ['embeddings'] } }] }
+        })
+      }
+      if (url.endsWith('/images/models')) return Promise.resolve({ value: { data: [] } })
+      return Promise.resolve({
+        value: {
+          data: [
+            {
+              id: 'acme/chat:free',
+              context_length: 262_144,
+              top_provider: { max_completion_tokens: 32_768 },
+              supported_parameters: ['tools', 'reasoning']
+            }
+          ]
+        }
+      })
+    })
+
+    const { models } = await listModels(provider)
+
+    expect(models.find((model) => model.apiModelId === 'acme/chat:free')).toMatchObject({
+      capabilities: [MODEL_CAPABILITY.FUNCTION_CALL, MODEL_CAPABILITY.REASONING],
+      contextWindow: 262_144,
+      maxOutputTokens: 32_768
+    })
+    expect(models.find((model) => model.apiModelId === 'acme/embed:free')?.capabilities).toEqual([
+      MODEL_CAPABILITY.EMBEDDING
+    ])
+  })
+
   it('keeps the primary and embedding catalogs when the image catalog fails in strict sync mode', async () => {
     const apiKey = 'sk-should-not-reach-logs'
     const provider = makeOpenRouterProvider()

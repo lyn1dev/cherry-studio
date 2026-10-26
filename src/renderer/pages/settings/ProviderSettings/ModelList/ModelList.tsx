@@ -1,9 +1,11 @@
 import React, { memo } from 'react'
 
 import { ButtonGroup } from '@cherrystudio/ui'
+import { SystemProviderIds } from '@shared/utils/systemProviderId'
 
 import { modelListClasses } from '../primitives/ProviderSettingsPrimitives'
 import { useModelListHealthRun } from './modelListHealthContext'
+import ProviderFreeModelsAdd from './ProviderFreeModelsAdd'
 import ProviderModelAdd from './ProviderModelAdd'
 import ProviderModelDownload from './ProviderModelDownload'
 import ProviderModelList from './ProviderModelList'
@@ -44,6 +46,9 @@ function ModelListContent({
               disabled={toolbarDisabled}
               guideVersion={modelPullGuideVersion}
             />
+            {providerId === SystemProviderIds.openrouter ? (
+              <ProviderFreeModelsAdd providerId={providerId} disabled={toolbarDisabled} />
+            ) : null}
             {providerId === 'ovms' ? (
               <ProviderModelDownload providerId={providerId} disabled={toolbarDisabled} />
             ) : (
